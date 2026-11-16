@@ -10,7 +10,39 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="shell">
+  <!-- [개발 · 인증] 로그인 전에는 이 화면만 보인다. 기록은 로그인한 뒤에만 불러온다. -->
+  <section id="auth-view" class="auth-view" hidden>
+    <div class="auth-card card">
+      <div class="logo">
+        <span class="logo-mark" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 4 13c0-6 5-9 16-10-1 11-4 16-9 17z"/><path d="M4 21c2-5 5-8 10-11"/></svg>
+        </span>
+        <span class="logo-text">플랜두씨</span>
+      </div>
+      <h1 id="auth-title">로그인</h1>
+      <p class="side-sub">내 계획과 기록은 로그인한 나만 볼 수 있습니다.</p>
+
+      <div class="auth-tabs" role="tablist" aria-label="로그인 또는 회원가입">
+        <button type="button" role="tab" id="tab-login" class="auth-tab selected" aria-selected="true" data-mode="login">로그인</button>
+        <button type="button" role="tab" id="tab-signup" class="auth-tab" aria-selected="false" data-mode="signup">회원가입</button>
+      </div>
+
+      <form id="auth-form" class="auth-form" autocomplete="on" novalidate>
+        <label>이메일
+          <input name="email" type="email" required autocomplete="email" inputmode="email" maxlength="254">
+        </label>
+        <label>비밀번호
+          <input name="password" type="password" required minlength="8" maxlength="72" autocomplete="current-password">
+        </label>
+        <p class="caption" id="auth-hint">가입한 이메일과 비밀번호를 입력하세요.</p>
+        <button type="submit" class="primary" id="auth-submit">로그인</button>
+      </form>
+      <p id="auth-msg" class="auth-msg" role="status" aria-live="polite"></p>
+      <p id="auth-error" class="error" role="alert" hidden></p>
+    </div>
+  </section>
+
+  <div class="shell" id="shell" hidden>
     <aside class="sidebar">
       <div class="side-top">
         <div class="logo">
@@ -32,11 +64,11 @@
           <div class="bar" aria-hidden="true"><span id="streak-bar" style="width:0%"></span></div>
           <p class="caption" id="streak-caption"></p>
         </section>
-        <p class="notice" role="note">
-          <strong>공개 다이어리입니다.</strong>
-          로그인이 없어서 이 링크를 아는 사람은 누구나 보고 고칠 수 있습니다.
-          남이 봐도 괜찮은 계획과 기록만 적고, 다른 사람의 이름·연락처나 민감한 내용은 적지 않습니다.
-        </p>
+        <div class="notice account" role="note">
+          <strong>내 기록은 나만 봅니다.</strong>
+          <span class="account-email" id="account-email"></span>
+          <button type="button" id="logout-btn" class="ghost">로그아웃</button>
+        </div>
       </div>
     </aside>
 
@@ -58,7 +90,7 @@
         <h2>Supabase 연결이 필요합니다</h2>
         <p><code>config.js</code>에 Supabase Project URL과 공개용 키가 아직 들어 있지 않습니다.</p>
         <ol>
-          <li>Supabase에서 프로젝트를 만들고, SQL Editor에서 <code>supabase/schema.sql</code>을 실행합니다.</li>
+          <li>Supabase에서 프로젝트를 만들고, SQL Editor에서 <code>supabase/schema-t07.sql</code>을 실행합니다.</li>
           <li>Project Settings → API에서 Project URL과 anon(또는 publishable) 키를 복사합니다.</li>
           <li><code>config.js</code>의 두 값을 바꾸고 다시 배포합니다.</li>
         </ol>
@@ -137,6 +169,14 @@
             </form>
           </section>
 
+          <section class="card rules" aria-labelledby="rule-h">
+            <div class="section-head">
+              <h2 id="rule-h">관찰 규칙</h2>
+              <span id="rule-version" class="chip"></span>
+            </div>
+            <div id="rule-body"></div>
+          </section>
+
           <section class="card book" aria-labelledby="book-h">
             <div class="section-head">
               <h2 id="book-h">읽고 있는 책</h2>
@@ -161,7 +201,7 @@
       </main>
 
       <footer class="foot caption">
-        날짜는 모두 한국 시간(Asia/Seoul) 기준이며 서버 데이터베이스(Supabase)에 저장됩니다. 새로고침해도 그대로 남습니다.
+        날짜는 모두 한국 시간(Asia/Seoul) 기준이며 서버 데이터베이스(Supabase)에 저장됩니다. 서버는 로그인한 본인의 기록만 돌려줍니다.
       </footer>
     </div>
   </div>

@@ -1,0 +1,65 @@
+{
+  "schema": "pds-schema-v3",
+  "title": "플랜두씨 다이어리 2 (T07) 데이터 계약",
+  "based_on": "pds-schema-v2 (T06). 표 구조와 날짜 규칙 D1~D4는 그대로 두고, 모든 표에 소유자(owner_id)와 소유자 전용 접근 정책을 더했다.",
+  "description": "로그인한 사람마다 자기 계획(Plan)·실제(Do)·돌아보기(See)와 기분·독서·관찰 규칙만 읽고 쓴다. 실제 DB는 supabase/schema-t07.sql로 만든다. T06의 pds_* 표는 건드리지 않는다.",
+  "auth": {
+    "provider": "Supabase Auth",
+    "method": "이메일 + 비밀번호 (signUp / signInWithPassword / signOut)",
+    "password_rule": "8자 이상 72자 이하 (화면 검사). Supabase 프로젝트 설정의 최소 길이도 함께 적용된다.",
+    "session": "브라우저 localStorage에 Supabase가 세션을 보관하고 자동으로 갱신한다(persistSession, autoRefreshToken).",
+    "first_screen": "로그인하지 않으면 로그인·회원가입 화면만 보인다. 기록은 로그인한 뒤에만 서버에서 불러온다."
+  },
+  "access_control": {
+    "enforced_by": "PostgreSQL 행 수준 보안(RLS). 화면에서 숨기는 것이 아니라 서버가 거절한다.",
+    "roles": {
+      "anon": "pds7_* 표에 대한 모든 권한을 회수(revoke all). 로그인하지 않은 요청은 어떤 행도 읽거나 쓸 수 없다.",
+      "authenticated": "select/insert/update/delete 권한이 있지만, 정책 t07_owner_only가 owner_id = auth.uid() 인 행만 허용한다."
+    },
+    "policy": "create policy \"t07_owner_only\" ... for all to authenticated using (owner_id = (select auth.uid())) with check (owner_id = (select auth.uid()))",
+    "extra_rules": [
+      "pds7_dos는 같은 소유자의 계획에만 달 수 있다 (트리거 pds7_dos_rule).",
+      "pds7_rules(관찰 규칙)는 update/delete 권한이 없다. 바꿀 때는 새 버전을 추가한다."
+    ],
+    "expected_results": {
+      "다른 사람 행 읽기": "오류 없이 빈 배열 [] (정책이 행을 걸러낸다)",
+      "다른 사람 행 고치기·지우기": "오류 없이 0행 처리 (대상이 보이지 않는다)",
+      "owner_id를 다른 사람으로 넣기": "403 / new row violates row-level security policy",
+      "로그인 없이 읽기": "401 또는 403 / permission denied"
+    }
+  },
+  "date_rules": {
+    "timezone": "Asia/Seoul",
+    "rules": [
+      { "id": "D1", "rule": "모든 날짜 열은 한국 시간(Asia/Seoul)의 달력 날짜(date)다." },
+      { "id": "D2", "rule": "Do의 done_date는 연결된 Plan의 plan_date보다 앞설 수 없다. (트리거 pds7_dos_rule)" },
+      { "id": "D3", "rule": "See와 Mood는 사람마다 하루 하나다. unique (owner_id, see_date) / (owner_id, mood_date)" },
+      { "id": "D4", "rule": "created_at, updated_at은 서버가 정하는 timestamptz다." },
+      { "id": "D5", "rule": "관찰 규칙 새 버전의 effective_from은 이전 버전의 effective_from보다 앞설 수 없다. 어떤 날짜에 적용되는 규칙은 effective_from <= 그 날짜 인 것 중 가장 높은 version이다." }
+    ]
+  },
+  "tables": {
+    "pds7_plans": ["id", "owner_id", "plan_date", "title", "metric", "target_value", "unit", "created_at"],
+    "pds7_dos": ["id", "owner_id", "plan_id", "done_date", "actual_value", "note", "created_at"],
+    "pds7_sees": ["id", "owner_id", "see_date", "went_well", "to_improve", "next_action", "created_at", "updated_at"],
+    "pds7_moods": ["id", "owner_id", "mood_date", "mood", "created_at", "updated_at"],
+    "pds7_books": ["id", "owner_id", "title", "author", "total_pages", "current_page", "reflection", "created_at", "updated_at"],
+    "pds7_rules": {
+      "meaning": "5일 관찰에 쓰는 질문·지표·단위·계산 규칙. 버전이 쌓이며 바꾸기 전후가 그대로 남는다.",
+      "columns": ["id", "owner_id", "version", "effective_from", "question", "metric", "unit", "calc_rule", "change_reason", "learned", "created_at"],
+      "constraints": ["unique (owner_id, version)", "version >= 1"]
+    },
+    "common": "모든 표의 owner_id는 auth.users(id)를 참조하고 기본값이 auth.uid()이다. 계정을 지우면 그 사람의 행도 함께 지워진다(on delete cascade)."
+  },
+  "export_format": {
+    "file_name": "pds-diary2-export-YYYY-MM-DD.json",
+    "shape": {
+      "schema": "pds-schema-v3",
+      "exported_at": "ISO 8601 UTC",
+      "timezone": "Asia/Seoul",
+      "owner_id": "내보낸 사람의 id",
+      "counts": "표별 행 수",
+      "plans|dos|sees|moods|books|rules": "로그인한 본인의 행 전체"
+    }
+  }
+}
