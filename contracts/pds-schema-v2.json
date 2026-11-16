@@ -73,7 +73,34 @@
       }
     }
   },
+  "extra_tables": {
+    "note": "Plan-Do-See 세 표 외에, 하루의 기분과 독서 진행을 함께 남기기 위한 표. 같은 날짜 규칙(D1, D4)을 따른다.",
+    "pds_moods": {
+      "meaning": "그날의 기분. 날짜당 하나이며 다시 고르면 그날의 행을 고친다(upsert, onConflict: mood_date).",
+      "columns": {
+        "id": { "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        "mood_date": { "type": "date", "nullable": false, "unique": true, "meaning": "기분을 기록한 날 (D1)" },
+        "mood": { "type": "text", "nullable": false, "check": "great | calm | okay | tired | sad", "labels": { "great": "아주 좋음", "calm": "평온함", "okay": "보통", "tired": "피곤함", "sad": "우울함" } },
+        "created_at": { "type": "timestamptz", "nullable": false, "default": "now()" },
+        "updated_at": { "type": "timestamptz", "nullable": false, "default": "now()", "meaning": "고칠 때마다 서버가 갱신" }
+      }
+    },
+    "pds_books": {
+      "meaning": "읽고 있는 책과 진행 상황. current_page < total_pages 인 책 중 가장 최근에 고친 책을 '읽고 있는 책'으로 보여 준다.",
+      "columns": {
+        "id": { "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        "title": { "type": "text", "nullable": false, "check": "공백 제외 1~200자" },
+        "author": { "type": "text", "nullable": true, "check": "100자 이하" },
+        "total_pages": { "type": "integer", "nullable": false, "check": "> 0" },
+        "current_page": { "type": "integer", "nullable": false, "default": 0, "check": "0 이상, total_pages 이하" },
+        "reflection": { "type": "text", "nullable": true, "check": "2000자 이하", "meaning": "감상 메모" },
+        "created_at": { "type": "timestamptz", "nullable": false, "default": "now()" },
+        "updated_at": { "type": "timestamptz", "nullable": false, "default": "now()", "meaning": "고칠 때마다 서버가 갱신" }
+      }
+    }
+  },
   "derived_values": {
+    "reading_percent": "round(pds_books.current_page / pds_books.total_pages * 100)",
     "achievement_percent": "round(sum(pds_dos.actual_value where plan_id = 계획) / pds_plans.target_value * 100). target_value가 없거나 0이면 계산하지 않는다."
   },
   "export_format": {
@@ -86,7 +113,9 @@
       "counts": { "plans": "number", "dos": "number", "sees": "number" },
       "plans": "pds_plans 전체 행 (created_at 오름차순)",
       "dos": "pds_dos 전체 행 (created_at 오름차순)",
-      "sees": "pds_sees 전체 행 (created_at 오름차순)"
+      "sees": "pds_sees 전체 행 (created_at 오름차순)",
+      "moods": "pds_moods 전체 행 (created_at 오름차순)",
+      "books": "pds_books 전체 행 (created_at 오름차순)"
     },
     "note": "1000행씩 나눠 끝까지 받아 오므로 기록이 많아도 전체가 담긴다."
   }

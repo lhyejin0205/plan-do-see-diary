@@ -12,9 +12,24 @@
     date: today0,            // 선택한 날
     month: today0.slice(0, 7), // 달력에 보이는 달 'YYYY-MM'
     plans: [], dos: [], see: null,
-    marks: {},               // { 'YYYY-MM-DD': { plan, do, see } }
+    marks: {},               // { 'YYYY-MM-DD': { plan, do, see, mood } }
+    mood: null,              // 선택한 날의 기분 행
+    books: [],               // 최근에 고친 순서
+    extraReady: true,        // pds_moods / pds_books 표가 있는지
     busy: false,
   };
+
+  const MOODS = [
+    ['great', '아주 좋음', '<path d="M8 14s1.5 2.5 4 2.5 4-2.5 4-2.5"/>'],
+    ['calm', '평온함', '<path d="M8.5 14.5s1.3 1.5 3.5 1.5 3.5-1.5 3.5-1.5"/>'],
+    ['okay', '보통', '<path d="M8.5 15h7"/>'],
+    ['tired', '피곤함', '<path d="M8.5 16s1.3-1.5 3.5-1.5 3.5 1.5 3.5 1.5"/>'],
+    ['sad', '우울함', '<path d="M8 16.5s1.5-2.5 4-2.5 4 2.5 4 2.5"/>'],
+  ];
+  const moodLabel = (v) => (MOODS.find((m) => m[0] === v) || [])[1] || '';
+  const MISSING_HTML = '<p class="missing">이 기능에 필요한 표가 아직 없습니다. Supabase SQL Editor에서 <code>supabase/schema.sql</code>을 다시 실행하면 사용할 수 있습니다.</p>';
+  const isMissingTable = (e) => /does not exist|Could not find the table|schema cache/i.test((e && e.message) || '')
+    || ['PGRST205', '42P01'].includes(e && e.code);
 
   // ───────── 날짜 도우미 (모든 날짜는 Asia/Seoul 달력 날짜 'YYYY-MM-DD') ─────────
   function todaySeoul() {
@@ -131,13 +146,31 @@
     const mark = (date) => (marks[date] = marks[date] || { plan: false, do: false, see: false });
     for (const p of plans) { const m = mark(p.plan_date); m.plan = true; if (done.has(p.id)) m.do = true; }
     for (const s of sees) mark(s.see_date).see = true;
+    try {
+      const moods = await check(db.from('pds_moods').select('mood_date, mood').gte('mood_date', from).lte('mood_date', to));
+      for (const r of moods) mark(r.mood_date).mood = r.mood;
+    } catch (e) { if (!isMissingTable(e)) throw e; }
     return marks;
+  }
+
+  // 기분과 독서 기록. 표가 아직 없으면 나머지 화면은 그대로 쓰게 둔다.
+  async function loadExtras() {
+    try {
+      const [mood, books] = await Promise.all([
+        check(db.from('pds_moods').select('*').eq('mood_date', state.date).maybeSingle()),
+        check(db.from('pds_books').select('*').order('updated_at', { ascending: false }).limit(50)),
+      ]);
+      return { mood, books, extraReady: true };
+    } catch (e) {
+      if (isMissingTable(e)) return { mood: null, books: [], extraReady: false };
+      throw e;
+    }
   }
 
   async function load() {
     setStatus('불러오는 중…', 'busy');
-    const [day, marks] = await Promise.all([loadDay(), loadMonth()]);
-    Object.assign(state, day, { marks });
+    const [day, marks, extras] = await Promise.all([loadDay(), loadMonth(), loadExtras()]);
+    Object.assign(state, day, extras, { marks });
     render();
     clearError();
     setStatus('서버에 저장된 내용', 'ok');
@@ -230,12 +263,12 @@
     for (let d = 1; d <= total; d++) {
       const iso = `${state.month}-${String(d).padStart(2, '0')}`;
       const mk = state.marks[iso] || {};
-      const has = [mk.plan && '계획', mk.do && '실행 기록', mk.see && '돌아보기'].filter(Boolean);
+      const has = [mk.plan && '계획', mk.do && '실행 기록', mk.see && '돌아보기', mk.mood && `기분 ${moodLabel(mk.mood)}`].filter(Boolean);
       const cls = ['day', iso === state.date && 'selected', iso === today && 'today'].filter(Boolean).join(' ');
       const label = `${m}월 ${d}일${iso === today ? ', 오늘' : ''}${has.length ? ', ' + has.join('·') + ' 있음' : ''}`;
       html += `<button type="button" class="${cls}" data-date="${iso}" aria-pressed="${iso === state.date}" aria-label="${label}">
         <span class="num">${d}</span>
-        <span class="dots">${mk.plan ? '<i class="dot plan"></i>' : ''}${mk.do ? '<i class="dot do"></i>' : ''}${mk.see ? '<i class="dot see"></i>' : ''}</span>
+        <span class="dots">${mk.plan ? '<i class="dot plan"></i>' : ''}${mk.do ? '<i class="dot do"></i>' : ''}${mk.see ? '<i class="dot see"></i>' : ''}${mk.mood ? `<i class="dot mood m-${esc(mk.mood)}"></i>` : ''}</span>
       </button>`;
     }
     $('#cal-grid').innerHTML = html;
@@ -264,7 +297,82 @@
     else if (avg == null) text = `계획 ${n}개 중 ${done}개에 실행 기록이 있어요. 목표 수치를 적으면 달성률도 계산돼요.`;
     else text = `계획 ${n}개 중 ${done}개를 실행했고, 목표가 있는 계획의 평균 달성률은 ${avg}%예요.`;
     if (n && !state.see) text += ' 돌아보기는 아직 남기지 않았어요.';
+    if (state.mood) text += ` 이 날의 기분은 '${moodLabel(state.mood.mood)}'이에요.`;
     $('#sum-text').textContent = text;
+  }
+
+  function renderMood() {
+    const el = $('#mood-options');
+    if (!state.extraReady) { el.innerHTML = MISSING_HTML; $('#mood-saved').textContent = ''; return; }
+    const cur = state.mood && state.mood.mood;
+    el.innerHTML = MOODS.map(([value, label, mouth]) => `
+      <button type="button" class="mood-btn${cur === value ? ' selected' : ''}" data-mood="${value}" aria-pressed="${cur === value}">
+        <span class="bubble m-${value}">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="9" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1" fill="currentColor" stroke="none"/>${mouth}</svg>
+        </span>
+        <span>${label}</span>
+      </button>`).join('');
+    $('#mood-saved').textContent = state.mood
+      ? `저장됨 · ${fmtTime(state.mood.updated_at || state.mood.created_at)}`
+      : '하루 한 번 기록';
+  }
+
+  function bookAddForm() {
+    return `
+      <form class="book-add" data-form="book-add" autocomplete="off">
+        <label>책 제목
+          <input name="title" required maxlength="200" placeholder="예: 월든">
+        </label>
+        <div class="pair">
+          <label>저자
+            <input name="author" maxlength="100" placeholder="예: 헨리 데이비드 소로">
+          </label>
+          <label>전체 쪽수
+            <input name="total_pages" type="number" min="1" step="1" inputmode="numeric" required placeholder="예: 320">
+          </label>
+        </div>
+        <button type="submit" class="primary">책 추가</button>
+      </form>`;
+  }
+
+  function renderBook() {
+    const el = $('#book-body');
+    $('#book-pct').textContent = '';
+    if (!state.extraReady) { el.innerHTML = MISSING_HTML; return; }
+    const cur = state.books.find((b) => b.current_page < b.total_pages);
+    const finished = state.books.filter((b) => b.current_page >= b.total_pages).length;
+    if (!cur) {
+      el.innerHTML = `<p class="empty" style="margin-bottom:12px">${finished ? `다 읽은 책 ${finished}권. ` : ''}지금 읽고 있는 책을 추가해 보세요.</p>${bookAddForm()}`;
+      return;
+    }
+    const pct = Math.round((cur.current_page / cur.total_pages) * 100);
+    $('#book-pct').textContent = `${pct}%`;
+    el.innerHTML = `
+      <div class="book-now">
+        <div class="cover" aria-hidden="true"><span>${esc(cur.title.slice(0, 14))}</span><i></i></div>
+        <div class="book-info">
+          <h3>${esc(cur.title)}</h3>
+          <p class="meta">${cur.author ? esc(cur.author) + ' · ' : ''}${fmtNum(cur.current_page)} / ${fmtNum(cur.total_pages)}쪽</p>
+          <div class="bar" aria-hidden="true"><span style="width:${pct}%"></span></div>
+          ${cur.reflection ? `<p class="book-quote">“${esc(cur.reflection)}”</p>` : ''}
+        </div>
+      </div>
+      <form class="book-save" data-form="book-save" data-id="${esc(cur.id)}" data-total="${cur.total_pages}" autocomplete="off">
+        <label>지금까지 읽은 쪽
+          <input name="current_page" type="number" min="0" max="${cur.total_pages}" step="1" inputmode="numeric" value="${cur.current_page}">
+        </label>
+        <label>감상 메모
+          <textarea name="reflection" rows="2" maxlength="2000" placeholder="읽으며 든 생각">${esc(cur.reflection || '')}</textarea>
+        </label>
+        <div class="book-actions">
+          <button type="submit" class="primary">독서 기록 저장</button>
+          <button type="button" class="link danger" data-action="del-book" data-id="${esc(cur.id)}">책 삭제</button>
+        </div>
+      </form>
+      <details class="book-new">
+        <summary>다른 책 시작하기${finished ? ` · 다 읽은 책 ${finished}권` : ''}</summary>
+        ${bookAddForm()}
+      </details>`;
   }
 
   function render() {
@@ -289,6 +397,8 @@
       ? `저장됨 · ${fmtTime(state.see.updated_at || state.see.created_at)}`
       : '아직 저장 안 됨';
 
+    renderMood();
+    renderBook();
     renderSummary();
   }
 
@@ -355,6 +465,44 @@
     await run('삭제 중', () => check(db.from('pds_dos').delete().eq('id', id)));
   }
 
+  async function setMood(value) {
+    if (!MOODS.some((m) => m[0] === value)) return;
+    if (state.mood && state.mood.mood === value) return;
+    await run('기분 저장 중', () => check(
+      db.from('pds_moods').upsert({ mood_date: state.date, mood: value }, { onConflict: 'mood_date' }),
+    ));
+  }
+
+  async function addBook(form) {
+    const title = clean(form.title.value);
+    const total = toNum(form.total_pages.value);
+    if (!title) { showError('책 제목을 적어 주세요.'); form.title.focus(); return; }
+    if (total == null || !Number.isInteger(total) || total < 1) {
+      showError('전체 쪽수는 1 이상의 정수로 적어 주세요.'); form.total_pages.focus(); return;
+    }
+    await run('책 추가 중', () => check(db.from('pds_books').insert({
+      title, author: clean(form.author.value), total_pages: total, current_page: 0,
+    })));
+  }
+
+  async function saveBook(form) {
+    const total = Number(form.dataset.total);
+    const page = toNum(form.current_page.value);
+    if (page == null || !Number.isInteger(page) || page < 0 || page > total) {
+      showError(`읽은 쪽은 0부터 ${total} 사이의 정수로 적어 주세요.`); form.current_page.focus(); return;
+    }
+    await run('독서 기록 저장 중', () => check(db.from('pds_books').update({
+      current_page: page, reflection: clean(form.reflection.value),
+    }).eq('id', form.dataset.id)));
+  }
+
+  async function delBook(id) {
+    const book = state.books.find((b) => b.id === id);
+    if (!book) return;
+    if (!confirm(`"${book.title}" 책과 독서 기록을 삭제할까요? 되돌릴 수 없습니다.`)) return;
+    await run('삭제 중', () => check(db.from('pds_books').delete().eq('id', id)));
+  }
+
   async function fetchAll(table) {
     const out = [];
     const size = 1000;
@@ -376,12 +524,16 @@
       const [plans, dos, sees] = await Promise.all([
         fetchAll('pds_plans'), fetchAll('pds_dos'), fetchAll('pds_sees'),
       ]);
+      const optional = async (table) => {
+        try { return await fetchAll(table); } catch (e) { if (isMissingTable(e)) return []; throw e; }
+      };
+      const [moods, books] = await Promise.all([optional('pds_moods'), optional('pds_books')]);
       const payload = {
         schema: SCHEMA,
         exported_at: new Date().toISOString(),
         timezone: TZ,
-        counts: { plans: plans.length, dos: dos.length, sees: sees.length },
-        plans, dos, sees,
+        counts: { plans: plans.length, dos: dos.length, sees: sees.length, moods: moods.length, books: books.length },
+        plans, dos, sees, moods, books,
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -392,7 +544,7 @@
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setStatus(`내보내기 완료 · 계획 ${plans.length} · 실행 ${dos.length} · 돌아보기 ${sees.length}`, 'ok');
+      setStatus(`내보내기 완료 · 계획 ${plans.length} · 실행 ${dos.length} · 돌아보기 ${sees.length} · 기분 ${moods.length} · 책 ${books.length}`, 'ok');
     } catch (e) {
       console.error(e);
       setStatus('내보내기 실패', 'error');
@@ -438,6 +590,23 @@
     $('#cal-grid').addEventListener('click', (e) => {
       const btn = e.target.closest('[data-date]');
       if (btn) goTo(btn.dataset.date);
+    });
+
+    $('#mood-options').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-mood]');
+      if (btn) setMood(btn.dataset.mood);
+    });
+    const bookBody = $('#book-body');
+    bookBody.addEventListener('submit', (e) => {
+      const kind = e.target.dataset.form;
+      if (!kind) return;
+      e.preventDefault();
+      if (kind === 'book-add') addBook(e.target);
+      if (kind === 'book-save') saveBook(e.target);
+    });
+    bookBody.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action="del-book"]');
+      if (btn) delBook(btn.dataset.id);
     });
 
     $('#plan-form').addEventListener('submit', (e) => { e.preventDefault(); addPlan(e.target); });

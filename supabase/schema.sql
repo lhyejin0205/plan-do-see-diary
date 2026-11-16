@@ -75,6 +75,46 @@ create trigger pds_sees_touch
   before update on public.pds_sees
   for each row execute function public.pds_touch_updated_at();
 
+-- ───────── Mood: 그날의 기분 (하루에 한 개) ─────────
+create table if not exists public.pds_moods (
+  id         uuid primary key default gen_random_uuid(),
+  mood_date  date not null unique,                               -- 기분을 기록한 날 (Asia/Seoul)
+  mood       text not null check (mood in ('great', 'calm', 'okay', 'tired', 'sad')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+drop trigger if exists pds_moods_touch on public.pds_moods;
+create trigger pds_moods_touch
+  before update on public.pds_moods
+  for each row execute function public.pds_touch_updated_at();
+
+-- ───────── Book: 읽고 있는 책과 진행 상황 ─────────
+create table if not exists public.pds_books (
+  id           uuid primary key default gen_random_uuid(),
+  title        text not null check (char_length(btrim(title)) between 1 and 200),
+  author       text check (author is null or char_length(author) <= 100),
+  total_pages  integer not null check (total_pages > 0),
+  current_page integer not null default 0 check (current_page >= 0),
+  reflection   text check (reflection is null or char_length(reflection) <= 2000),  -- 감상 메모
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  constraint pds_books_page_range check (current_page <= total_pages)
+);
+
+drop trigger if exists pds_books_touch on public.pds_books;
+create trigger pds_books_touch
+  before update on public.pds_books
+  for each row execute function public.pds_touch_updated_at();
+
+alter table public.pds_moods enable row level security;
+alter table public.pds_books enable row level security;
+grant select, insert, update, delete on public.pds_moods, public.pds_books to anon;
+drop policy if exists "t06_public_diary" on public.pds_moods;
+drop policy if exists "t06_public_diary" on public.pds_books;
+create policy "t06_public_diary" on public.pds_moods for all to anon using (true) with check (true);
+create policy "t06_public_diary" on public.pds_books for all to anon using (true) with check (true);
+
 -- ───────── 권한 ─────────
 -- T06 은 로그인이 없는 공개 다이어리라서 anon(공개 키) 역할에 읽기·쓰기를 허용합니다.
 -- 링크를 아는 사람은 누구나 보고 고칠 수 있으므로 남이 봐도 괜찮은 내용만 적습니다.

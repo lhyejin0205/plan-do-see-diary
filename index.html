@@ -82,7 +82,15 @@
             </div>
             <div class="weekdays" aria-hidden="true"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>
             <div id="cal-grid" class="cal-grid"></div>
-            <p class="legend caption"><span><i class="dot plan"></i>계획</span><span><i class="dot do"></i>실행 기록</span><span><i class="dot see"></i>돌아보기</span></p>
+            <p class="legend caption"><span><i class="dot plan"></i>계획</span><span><i class="dot do"></i>실행 기록</span><span><i class="dot see"></i>돌아보기</span><span><i class="dot mood m-calm"></i>기분</span></p>
+          </section>
+
+          <section class="card mood" aria-labelledby="mood-h">
+            <div class="section-head">
+              <h2 id="mood-h">이 날의 기분</h2>
+              <span class="caption" id="mood-saved">하루 한 번 기록</span>
+            </div>
+            <div id="mood-options" class="mood-options" role="group" aria-labelledby="mood-h"></div>
           </section>
 
           <section class="card" aria-labelledby="plan-h">
@@ -127,6 +135,14 @@
               </label>
               <button type="submit" class="primary">돌아보기 저장</button>
             </form>
+          </section>
+
+          <section class="card book" aria-labelledby="book-h">
+            <div class="section-head">
+              <h2 id="book-h">읽고 있는 책</h2>
+              <span id="book-pct" class="caption strong"></span>
+            </div>
+            <div id="book-body"></div>
           </section>
 
           <section class="card insight" aria-labelledby="sum-h">

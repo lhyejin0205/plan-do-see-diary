@@ -183,6 +183,49 @@ textarea { resize: vertical; }
 .stat b { font-family: var(--serif); font-weight: 500; font-size: 17px; line-height: 26px; color: var(--insight-strong); }
 .stat span { font-size: 12px; line-height: 16px; color: var(--text-2); }
 
+/* ---------- Mood tracker ---------- */
+.m-great { background: #F6D9A6; }
+.m-calm { background: #CFE0C6; }
+.m-okay { background: #E6DFD3; }
+.m-tired { background: #CBD8E8; }
+.m-sad { background: #DACDE6; }
+.dot.mood { border-radius: 2px; outline: 1px solid rgba(47, 42, 36, 0.25); outline-offset: -1px; }
+section.mood { padding: 20px; }
+.mood-options { display: flex; justify-content: space-between; gap: 8px; }
+.mood-btn {
+  background: none; padding: 4px; min-height: 0; border-radius: var(--radius-md); flex: 1;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--text-2);
+  font-size: 12px; line-height: 16px; font-weight: 400;
+}
+.mood-btn .bubble { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; color: var(--text-2); border: 2px solid transparent; }
+.mood-btn:hover .bubble { border-color: var(--border); }
+.mood-btn.selected { color: var(--text); font-weight: 500; }
+.mood-btn.selected .bubble { border-color: var(--accent); box-shadow: var(--shadow-sm); color: var(--text); }
+.missing { background: var(--notice); border-radius: var(--radius-md); padding: 12px 14px; font-size: 13px; line-height: 20px; color: var(--text-2); }
+
+/* ---------- Book tracker ---------- */
+.book { padding: 20px; }
+.book .section-head { margin-bottom: 12px; }
+.book-now { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
+.cover {
+  width: 68px; height: 98px; flex: none; border-radius: 6px; background: var(--insight-strong); color: var(--inverse);
+  padding: 10px 8px; display: flex; flex-direction: column; justify-content: space-between;
+  box-shadow: 0 2px 4px rgba(61, 46, 31, 0.06), 0 10px 24px rgba(61, 46, 31, 0.07);
+  font-family: var(--serif); font-weight: 500; font-size: 13px; line-height: 18px; overflow: hidden; overflow-wrap: anywhere;
+}
+.cover i { width: 18px; height: 2px; background: #F6D9A6; flex: none; }
+.book-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.book-info h3 { font-size: 17px; line-height: 26px; overflow-wrap: anywhere; }
+.book-info .bar { margin-top: 8px; }
+.book-info .bar span { background: var(--insight-strong); }
+.book-quote { margin-top: 8px; font-size: 13px; line-height: 20px; color: var(--text-2); overflow-wrap: anywhere; }
+.book-save, .book-add { display: flex; flex-direction: column; gap: 12px; }
+.book-add .pair { display: grid; grid-template-columns: 1.6fr 1fr; gap: 12px; }
+.book-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.book-new { margin-top: 16px; border-top: 1px solid var(--sunken); padding-top: 12px; }
+.book-new summary { cursor: pointer; font-size: 13px; line-height: 20px; font-weight: 500; color: var(--accent-strong); border-radius: 6px; }
+.book-new[open] summary { margin-bottom: 12px; }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 1180px) {
   .content { grid-template-columns: minmax(0, 1fr); }
@@ -202,6 +245,8 @@ textarea { resize: vertical; }
   .day { min-height: 52px; padding: 6px; }
   .weekdays span { padding-left: 6px; }
   .dot { width: 6px; height: 6px; }
+  .mood-btn .bubble { width: 44px; height: 44px; }
+  .mood-options { gap: 2px; }
   .dots { gap: 3px; }
   .cal-controls input[type="date"] { display: none; }
   .do-form label, .do-form label:has(input[type="date"]) { width: calc(50% - 4px); }
