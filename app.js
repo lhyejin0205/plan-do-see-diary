@@ -7,7 +7,14 @@
   const $ = (sel) => document.querySelector(sel);
 
   let db = null;
-  const state = { date: todaySeoul(), plans: [], dos: [], see: null, busy: false };
+  const today0 = todaySeoul();
+  const state = {
+    date: today0,            // 선택한 날
+    month: today0.slice(0, 7), // 달력에 보이는 달 'YYYY-MM'
+    plans: [], dos: [], see: null,
+    marks: {},               // { 'YYYY-MM-DD': { plan, do, see } }
+    busy: false,
+  };
 
   // ───────── 날짜 도우미 (모든 날짜는 Asia/Seoul 달력 날짜 'YYYY-MM-DD') ─────────
   function todaySeoul() {
@@ -20,14 +27,18 @@
     const d = new Date(s + 'T00:00:00Z');
     return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
   }
-  function shiftDate(iso, days) {
-    const [y, m, d] = iso.split('-').map(Number);
-    return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+  function shiftMonth(ym, n) {
+    const [y, m] = ym.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7);
+  }
+  function daysInMonth(ym) {
+    const [y, m] = ym.split('-').map(Number);
+    return new Date(Date.UTC(y, m, 0)).getUTCDate();
   }
   function fmtDay(iso) {
     const [y, m, d] = iso.split('-').map(Number);
     const wd = '일월화수목금토'[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
-    return `${y}년 ${m}월 ${d}일 (${wd})`;
+    return `${y}년 ${m}월 ${d}일 ${wd}요일`;
   }
   function fmtTime(ts) {
     if (!ts) return '';
@@ -86,26 +97,47 @@
     return msg;
   }
 
+  async function check(res) {
+    const r = await res;
+    if (r.error) throw r.error;
+    return r.data;
+  }
+
   // ───────── 서버 읽기 ─────────
+  async function loadDay() {
+    const [plans, see] = await Promise.all([
+      check(db.from('pds_plans').select('*').eq('plan_date', state.date).order('created_at', { ascending: true })),
+      check(db.from('pds_sees').select('*').eq('see_date', state.date).maybeSingle()),
+    ]);
+    const ids = plans.map((x) => x.id);
+    const dos = ids.length
+      ? await check(db.from('pds_dos').select('*').in('plan_id', ids).order('created_at', { ascending: true }))
+      : [];
+    return { plans, dos, see };
+  }
+
+  // 달력 점: 그 달에 계획·실행 기록·돌아보기가 있는 날
+  async function loadMonth() {
+    const from = `${state.month}-01`;
+    const to = `${state.month}-${String(daysInMonth(state.month)).padStart(2, '0')}`;
+    const [plans, sees] = await Promise.all([
+      check(db.from('pds_plans').select('id, plan_date').gte('plan_date', from).lte('plan_date', to)),
+      check(db.from('pds_sees').select('see_date').gte('see_date', from).lte('see_date', to)),
+    ]);
+    const ids = plans.map((p) => p.id);
+    const dos = ids.length ? await check(db.from('pds_dos').select('plan_id').in('plan_id', ids)) : [];
+    const done = new Set(dos.map((d) => d.plan_id));
+    const marks = {};
+    const mark = (date) => (marks[date] = marks[date] || { plan: false, do: false, see: false });
+    for (const p of plans) { const m = mark(p.plan_date); m.plan = true; if (done.has(p.id)) m.do = true; }
+    for (const s of sees) mark(s.see_date).see = true;
+    return marks;
+  }
+
   async function load() {
     setStatus('불러오는 중…', 'busy');
-    const [p, s] = await Promise.all([
-      db.from('pds_plans').select('*').eq('plan_date', state.date).order('created_at', { ascending: true }),
-      db.from('pds_sees').select('*').eq('see_date', state.date).maybeSingle(),
-    ]);
-    if (p.error) throw p.error;
-    if (s.error) throw s.error;
-
-    let dos = [];
-    const ids = p.data.map((x) => x.id);
-    if (ids.length) {
-      const d = await db.from('pds_dos').select('*').in('plan_id', ids).order('created_at', { ascending: true });
-      if (d.error) throw d.error;
-      dos = d.data;
-    }
-    state.plans = p.data;
-    state.dos = dos;
-    state.see = s.data;
+    const [day, marks] = await Promise.all([loadDay(), loadMonth()]);
+    Object.assign(state, day, { marks });
     render();
     clearError();
     setStatus('서버에 저장된 내용', 'ok');
@@ -129,19 +161,18 @@
     }
   }
 
-  async function check(res) {
-    const r = await res;
-    if (r.error) throw r.error;
-    return r.data;
-  }
-
   // ───────── 화면 그리기 ─────────
-  function planCard(p) {
+  function planStats(p) {
     const ds = state.dos.filter((d) => d.plan_id === p.id);
     const hasValue = ds.some((d) => d.actual_value != null);
     const total = ds.reduce((a, d) => a + (d.actual_value == null ? 0 : Number(d.actual_value)), 0);
     const target = p.target_value == null ? null : Number(p.target_value);
     const pct = target && target > 0 && hasValue ? Math.round((total / target) * 100) : null;
+    return { ds, total, target, pct };
+  }
+
+  function planCard(p) {
+    const { ds, total, target, pct } = planStats(p);
     const unit = esc(p.unit || '');
 
     const meta = (p.metric || target != null)
@@ -151,7 +182,7 @@
     const progress = pct != null
       ? `<div class="bar" aria-hidden="true"><span style="width:${Math.min(pct, 100)}%"></span></div>
          <p class="pct">실제 ${fmtNum(total)} ${unit} / 목표 ${fmtNum(target)} ${unit} · <b>${pct}%</b></p>`
-      : (ds.length ? '' : '<p class="pct muted">아직 실행 기록이 없습니다.</p>');
+      : (ds.length ? '' : '<p class="pct">아직 실행 기록이 없습니다.</p>');
 
     const doItems = ds.map((d) => `
       <li>
@@ -183,30 +214,82 @@
           <label>한 날짜
             <input name="done_date" type="date" value="${esc(state.date)}" min="${esc(p.plan_date)}">
           </label>
-          <button type="submit">Do 기록</button>
+          <button type="submit" class="primary">Do 기록</button>
         </form>
       </article>`;
   }
 
-  function render() {
-    $('#date-input').value = state.date;
-    $('#date-label').textContent = fmtDay(state.date) + (state.date === todaySeoul() ? ' · 오늘' : '');
+  function renderCalendar() {
+    const [y, m] = state.month.split('-').map(Number);
+    $('#cal-title').textContent = `${y}년 ${m}월`;
+    const lead = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+    const total = daysInMonth(state.month);
+    const today = todaySeoul();
+    let html = '';
+    for (let i = 0; i < lead; i++) html += '<span class="day blank" aria-hidden="true"></span>';
+    for (let d = 1; d <= total; d++) {
+      const iso = `${state.month}-${String(d).padStart(2, '0')}`;
+      const mk = state.marks[iso] || {};
+      const has = [mk.plan && '계획', mk.do && '실행 기록', mk.see && '돌아보기'].filter(Boolean);
+      const cls = ['day', iso === state.date && 'selected', iso === today && 'today'].filter(Boolean).join(' ');
+      const label = `${m}월 ${d}일${iso === today ? ', 오늘' : ''}${has.length ? ', ' + has.join('·') + ' 있음' : ''}`;
+      html += `<button type="button" class="${cls}" data-date="${iso}" aria-pressed="${iso === state.date}" aria-label="${label}">
+        <span class="num">${d}</span>
+        <span class="dots">${mk.plan ? '<i class="dot plan"></i>' : ''}${mk.do ? '<i class="dot do"></i>' : ''}${mk.see ? '<i class="dot see"></i>' : ''}</span>
+      </button>`;
+    }
+    $('#cal-grid').innerHTML = html;
 
-    const list = $('#plan-list');
-    list.innerHTML = state.plans.length
+    // 사이드바: 보이는 달에 계획을 적은 날 수
+    const planDays = Object.values(state.marks).filter((x) => x.plan).length;
+    $('#streak-over').textContent = `${y}년 ${m}월`;
+    $('#streak-title').textContent = planDays ? `${planDays}일 계획을 세웠어요` : '아직 계획이 없어요';
+    $('#streak-bar').style.width = `${Math.round((planDays / total) * 100)}%`;
+    const seeDays = Object.values(state.marks).filter((x) => x.see).length;
+    $('#streak-caption').textContent = `${total}일 중 ${planDays}일 · 돌아보기 ${seeDays}일`;
+  }
+
+  function renderSummary() {
+    const n = state.plans.length;
+    const stats = state.plans.map(planStats);
+    const done = stats.filter((s) => s.ds.length).length;
+    const pcts = stats.map((s) => s.pct).filter((p) => p != null);
+    const avg = pcts.length ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : null;
+    $('#sum-plans').textContent = `${n}개`;
+    $('#sum-done').textContent = `${done}개`;
+    $('#sum-rate').textContent = avg == null ? '–' : `${avg}%`;
+    let text;
+    if (!n) text = '이 날에는 아직 계획이 없어요. 계획을 하나 적으면 여기에 요약이 나타나요.';
+    else if (!done) text = `계획 ${n}개를 세웠고, 아직 실행 기록은 없어요.`;
+    else if (avg == null) text = `계획 ${n}개 중 ${done}개에 실행 기록이 있어요. 목표 수치를 적으면 달성률도 계산돼요.`;
+    else text = `계획 ${n}개 중 ${done}개를 실행했고, 목표가 있는 계획의 평균 달성률은 ${avg}%예요.`;
+    if (n && !state.see) text += ' 돌아보기는 아직 남기지 않았어요.';
+    $('#sum-text').textContent = text;
+  }
+
+  function render() {
+    const isToday = state.date === todaySeoul();
+    $('#date-over').textContent = isToday ? '오늘' : '선택한 날';
+    $('#date-title').textContent = fmtDay(state.date);
+    $('#date-input').value = state.date;
+
+    renderCalendar();
+
+    $('#plan-list').innerHTML = state.plans.length
       ? state.plans.map(planCard).join('')
       : '<p class="empty">이 날의 계획이 아직 없습니다. 위 칸에 실제로 할 일을 하나 적어 보세요.</p>';
-
-    const withDo = state.plans.filter((p) => state.dos.some((d) => d.plan_id === p.id)).length;
-    $('#summary').textContent = state.plans.length ? `계획 ${state.plans.length}개 · 실행 기록 있는 계획 ${withDo}개` : '';
 
     const f = $('#see-form');
     f.went_well.value = state.see?.went_well || '';
     f.to_improve.value = state.see?.to_improve || '';
     f.next_action.value = state.see?.next_action || '';
+    const [, mm, dd] = state.date.split('-').map(Number);
+    $('#see-over').textContent = `${mm}월 ${dd}일 · 돌아보기`;
     $('#see-saved').textContent = state.see
       ? `저장됨 · ${fmtTime(state.see.updated_at || state.see.created_at)}`
       : '아직 저장 안 됨';
+
+    renderSummary();
   }
 
   // ───────── 동작 ─────────
@@ -319,10 +402,19 @@
     }
   }
 
+  function reload() {
+    load().catch((e) => { console.error(e); setStatus('불러오기 실패', 'error'); showError(explain(e)); });
+  }
   function goTo(date) {
     if (!isIsoDate(date) || state.busy) return;
     state.date = date;
-    load().catch((e) => { setStatus('불러오기 실패', 'error'); showError(explain(e)); });
+    state.month = date.slice(0, 7);
+    reload();
+  }
+  function goMonth(n) {
+    if (state.busy) return;
+    state.month = shiftMonth(state.month, n);
+    reload();
   }
 
   // ───────── 연결 ─────────
@@ -336,14 +428,17 @@
   function wire() {
     $('#error-close').addEventListener('click', clearError);
     $('#export-btn').addEventListener('click', exportAll);
-
-    document.querySelector('.day-nav').addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-nav]');
-      if (!btn) return;
-      const v = btn.dataset.nav;
-      goTo(v === 'today' ? todaySeoul() : shiftDate(state.date, Number(v)));
-    });
+    $('#today-btn').addEventListener('click', () => goTo(todaySeoul()));
     $('#date-input').addEventListener('change', (e) => goTo(e.target.value));
+
+    document.querySelector('.cal-controls').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-month]');
+      if (btn) goMonth(Number(btn.dataset.month));
+    });
+    $('#cal-grid').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-date]');
+      if (btn) goTo(btn.dataset.date);
+    });
 
     $('#plan-form').addEventListener('submit', (e) => { e.preventDefault(); addPlan(e.target); });
     $('#see-form').addEventListener('submit', (e) => { e.preventDefault(); saveSee(e.target); });
@@ -367,12 +462,13 @@
     if (!configured()) {
       $('#setup').hidden = false;
       $('#export-btn').disabled = true;
+      $('#today-btn').disabled = true;
       setStatus('Supabase 연결 필요', 'error');
       return;
     }
     db = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
     $('#app').hidden = false;
-    load().catch((e) => { console.error(e); setStatus('불러오기 실패', 'error'); showError(explain(e)); });
+    reload();
   }
 
   init();
