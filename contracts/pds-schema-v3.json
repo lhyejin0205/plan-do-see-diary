@@ -25,7 +25,9 @@
       "다른 사람 행 읽기": "오류 없이 빈 배열 [] (정책이 행을 걸러낸다)",
       "다른 사람 행 고치기·지우기": "오류 없이 0행 처리 (대상이 보이지 않는다)",
       "owner_id를 다른 사람으로 넣기": "403 / new row violates row-level security policy",
-      "로그인 없이 읽기": "401 또는 403 / permission denied"
+      "다른 사람 계획에 Do 달기": "400 / plan <id> not found (트리거가 요청자 권한으로 계획을 찾으므로 보이지 않음)",
+      "관찰 규칙 고치기": "403 / permission denied (update 권한 없음)",
+      "로그인 없이 읽기": "401 / permission denied"
     }
   },
   "date_rules": {
