@@ -1,0 +1,93 @@
+{
+  "schema": "pds-schema-v2",
+  "title": "플랜두씨 다이어리 1 (T06) 데이터 계약",
+  "description": "계획(Plan) → 실제로 한 일(Do) → 돌아보기(See)를 Supabase(PostgreSQL)에 저장하는 표 구조와 날짜 규칙. 실제 DB는 supabase/schema.sql로 만든다.",
+  "database": {
+    "engine": "PostgreSQL (Supabase)",
+    "schema_file": "supabase/schema.sql",
+    "access": "T06에는 로그인이 없으므로 anon 역할에 select/insert/update/delete를 허용한다(RLS 정책 t06_public_diary). T07에서 소유자 기준 정책으로 교체한다."
+  },
+  "date_rules": {
+    "timezone": "Asia/Seoul",
+    "date_format": "YYYY-MM-DD (PostgreSQL date 타입, 시각 없음)",
+    "rules": [
+      {
+        "id": "D1",
+        "rule": "plan_date, done_date, see_date는 모두 한국 시간(Asia/Seoul)의 달력 날짜다. 브라우저의 기기 시간대와 상관없이 Intl.DateTimeFormat(timeZone='Asia/Seoul')로 '오늘'을 계산한다.",
+        "enforced_by": "app.js todaySeoul()"
+      },
+      {
+        "id": "D2",
+        "rule": "Do의 done_date는 연결된 Plan의 plan_date보다 앞설 수 없다(같은 날 또는 이후만 허용).",
+        "enforced_by": "DB 트리거 pds_dos_date_rule + app.js 입력 검사"
+      },
+      {
+        "id": "D3",
+        "rule": "See는 날짜당 하나다. 같은 날 다시 저장하면 새 행을 만들지 않고 그 날의 행을 고친다.",
+        "enforced_by": "pds_sees.see_date UNIQUE + upsert(onConflict: see_date)"
+      },
+      {
+        "id": "D4",
+        "rule": "created_at, updated_at은 서버가 정하는 timestamptz(UTC 저장)다. 화면에는 Asia/Seoul로 바꿔 보여 준다.",
+        "enforced_by": "DB default now(), 트리거 pds_sees_touch"
+      }
+    ]
+  },
+  "tables": {
+    "pds_plans": {
+      "meaning": "그날 실제로 세운 계획 하나",
+      "columns": {
+        "id": { "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        "plan_date": { "type": "date", "nullable": false, "meaning": "계획한 날 (D1)" },
+        "title": { "type": "text", "nullable": false, "check": "공백 제외 1~200자" },
+        "metric": { "type": "text", "nullable": true, "check": "100자 이하", "meaning": "무엇으로 잴지" },
+        "target_value": { "type": "numeric", "nullable": true, "check": ">= 0", "meaning": "목표 수치" },
+        "unit": { "type": "text", "nullable": true, "check": "30자 이하" },
+        "created_at": { "type": "timestamptz", "nullable": false, "default": "now()" }
+      },
+      "indexes": ["plan_date"]
+    },
+    "pds_dos": {
+      "meaning": "계획에 대해 실제로 한 일. 한 계획에 여러 번 기록할 수 있다.",
+      "columns": {
+        "id": { "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        "plan_id": { "type": "uuid", "nullable": false, "references": "pds_plans.id", "on_delete": "cascade" },
+        "done_date": { "type": "date", "nullable": false, "meaning": "실제로 한 날 (D1, D2)" },
+        "actual_value": { "type": "numeric", "nullable": true, "check": ">= 0", "meaning": "실제로 한 양 (Plan의 unit과 같은 단위)" },
+        "note": { "type": "text", "nullable": true, "check": "500자 이하" },
+        "created_at": { "type": "timestamptz", "nullable": false, "default": "now()" }
+      },
+      "constraints": ["actual_value와 note 중 하나 이상은 있어야 한다 (pds_dos_has_content)"],
+      "indexes": ["plan_id"]
+    },
+    "pds_sees": {
+      "meaning": "하루 돌아보기",
+      "columns": {
+        "id": { "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        "see_date": { "type": "date", "nullable": false, "unique": true, "meaning": "돌아본 날 (D1, D3)" },
+        "went_well": { "type": "text", "nullable": true, "check": "2000자 이하" },
+        "to_improve": { "type": "text", "nullable": true, "check": "2000자 이하" },
+        "next_action": { "type": "text", "nullable": true, "check": "2000자 이하" },
+        "created_at": { "type": "timestamptz", "nullable": false, "default": "now()" },
+        "updated_at": { "type": "timestamptz", "nullable": false, "default": "now()", "meaning": "고칠 때마다 서버가 갱신" }
+      }
+    }
+  },
+  "derived_values": {
+    "achievement_percent": "round(sum(pds_dos.actual_value where plan_id = 계획) / pds_plans.target_value * 100). target_value가 없거나 0이면 계산하지 않는다."
+  },
+  "export_format": {
+    "trigger": "화면 오른쪽 위 '내 자료 전체 내보내기 (JSON)' 버튼",
+    "file_name": "pds-diary-export-YYYY-MM-DD.json (날짜는 Asia/Seoul 오늘)",
+    "shape": {
+      "schema": "pds-schema-v2",
+      "exported_at": "ISO 8601 UTC 시각",
+      "timezone": "Asia/Seoul",
+      "counts": { "plans": "number", "dos": "number", "sees": "number" },
+      "plans": "pds_plans 전체 행 (created_at 오름차순)",
+      "dos": "pds_dos 전체 행 (created_at 오름차순)",
+      "sees": "pds_sees 전체 행 (created_at 오름차순)"
+    },
+    "note": "1000행씩 나눠 끝까지 받아 오므로 기록이 많아도 전체가 담긴다."
+  }
+}

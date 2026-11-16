@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>플랜두씨 다이어리</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>플랜두씨 다이어리</h1>
+      <p class="sub">계획(Plan) → 실제로 한 일(Do) → 돌아보기(See)</p>
+    </div>
+    <div class="top-actions">
+      <span id="status" class="status" role="status" aria-live="polite"></span>
+      <button id="export-btn" type="button">내 자료 전체 내보내기 (JSON)</button>
+    </div>
+  </header>
+
+  <div class="notice" role="note">
+    <strong>공개 다이어리입니다.</strong>
+    로그인이 없어서 이 링크를 아는 사람은 누구나 보고 고칠 수 있습니다.
+    남이 봐도 괜찮은 계획과 기록만 적고, 다른 사람의 이름·연락처나 민감한 내용은 적지 않습니다.
+  </div>
+
+  <div id="error" class="error" role="alert" hidden>
+    <span id="error-text"></span>
+    <button type="button" class="link" id="error-close">닫기</button>
+  </div>
+
+  <section id="setup" class="card setup" hidden>
+    <h2>Supabase 연결이 필요합니다</h2>
+    <p><code>config.js</code>에 Supabase Project URL과 공개용 키가 아직 들어 있지 않습니다.</p>
+    <ol>
+      <li>Supabase에서 프로젝트를 만들고, SQL Editor에서 <code>supabase/schema.sql</code>을 실행합니다.</li>
+      <li>Project Settings → API에서 Project URL과 anon(또는 publishable) 키를 복사합니다.</li>
+      <li><code>config.js</code>의 두 값을 바꾸고 다시 배포합니다.</li>
+    </ol>
+  </section>
+
+  <main id="app" hidden>
+    <nav class="day-nav" aria-label="날짜 이동">
+      <button type="button" data-nav="-1">← 전날</button>
+      <label class="date-pick">
+        <span class="sr-only">날짜 선택</span>
+        <input type="date" id="date-input">
+      </label>
+      <button type="button" data-nav="1">다음날 →</button>
+      <button type="button" data-nav="today" class="ghost">오늘</button>
+      <span id="date-label" class="date-label"></span>
+    </nav>
+
+    <div class="grid">
+      <section class="card" aria-labelledby="plan-h">
+        <div class="section-head">
+          <h2 id="plan-h"><span class="tag plan">Plan</span> 이 날의 계획과 실제</h2>
+          <span id="summary" class="muted"></span>
+        </div>
+
+        <form id="plan-form" class="plan-form" autocomplete="off">
+          <label class="wide">계획
+            <input name="title" required maxlength="200" placeholder="예: 영어 단어 외우기">
+          </label>
+          <label>무엇으로 잴까
+            <input name="metric" maxlength="100" placeholder="예: 외운 단어 수">
+          </label>
+          <label>목표
+            <input name="target_value" type="number" min="0" step="any" inputmode="decimal" placeholder="예: 30">
+          </label>
+          <label>단위
+            <input name="unit" maxlength="30" placeholder="예: 개">
+          </label>
+          <button type="submit">계획 추가</button>
+        </form>
+
+        <div id="plan-list" class="plan-list"></div>
+      </section>
+
+      <section class="card" aria-labelledby="see-h">
+        <div class="section-head">
+          <h2 id="see-h"><span class="tag see">See</span> 하루 돌아보기</h2>
+          <span id="see-saved" class="muted"></span>
+        </div>
+        <form id="see-form" class="see-form">
+          <label>잘된 점
+            <textarea name="went_well" rows="3" maxlength="2000" placeholder="계획대로 된 것, 예상보다 잘된 것"></textarea>
+          </label>
+          <label>아쉬운 점과 이유
+            <textarea name="to_improve" rows="3" maxlength="2000" placeholder="계획과 실제가 달랐던 곳과 그 이유"></textarea>
+          </label>
+          <label>다음에 바꿀 한 가지
+            <textarea name="next_action" rows="2" maxlength="2000" placeholder="내일 계획에 반영할 것"></textarea>
+          </label>
+          <button type="submit">돌아보기 저장</button>
+        </form>
+      </section>
+    </div>
+  </main>
+
+  <footer class="foot muted">
+    날짜는 모두 한국 시간(Asia/Seoul) 기준이며 서버 데이터베이스(Supabase)에 저장됩니다. 새로고침해도 그대로 남습니다.
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
