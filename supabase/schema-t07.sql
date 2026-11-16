@@ -153,3 +153,6 @@ end $$;
 
 -- 관찰 규칙은 기록이므로 고치거나 지우지 않는다(새 버전만 추가)
 revoke update, delete on public.pds7_rules from authenticated;
+
+-- API가 새 표를 바로 알아보도록 표 목록을 새로 고침
+notify pgrst, 'reload schema';
